@@ -1,0 +1,42 @@
+{
+  "commands": [
+    {
+      "id": "valve_ascii_serial",
+      "type": "toggle_button",
+      "label": "Valve Cmd (ASCII SERIAL)",
+      "data_type": "bool",
+      "protocol": {
+        "type": "ascii-serial",
+        "port_path": "COM3",
+        "baud_rate": 9600,
+        "data_bits": "eight",
+        "parity": "none",
+        "stop_bits": "one",
+        "line_ending": "lf",
+        "open_timeout_ms": 2000,
+        "io_timeout_ms": 2000
+      },
+      "request": "VALVE?",
+      "expected_response": "VALVE=0"
+    },
+    {
+      "id": "temp_ascii_serial",
+      "type": "readout",
+      "label": "Temperature Cmd (ASCII SERIAL)",
+      "data_type": "float",
+      "protocol": {
+        "type": "ascii-serial",
+        "port_path": "COM3",
+        "baud_rate": 9600,
+        "data_bits": "eight",
+        "parity": "none",
+        "stop_bits": "one",
+        "line_ending": "lf",
+        "open_timeout_ms": 2000,
+        "io_timeout_ms": 2000
+      },
+      "request": "TEMP?",
+      "expected_response": "TEMP=24.1"
+    }
+  ]
+}

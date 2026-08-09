@@ -1,0 +1,18 @@
+[package]
+name = "ascii-serial"
+version = "0.1.0"
+edition = "2021"
+description = "Tokio-based ASCII request/response client over serial ports"
+license = "MPL-2.0"
+
+[dependencies]
+tokio = { version = "1", features = ["io-util", "time", "sync"] }
+tokio-serial = "5"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "time"] }
