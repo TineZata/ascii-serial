@@ -11,6 +11,7 @@ use tokio_serial::SerialPortBuilderExt;
 pub mod client;
 pub use client::{ClientConfig, Context};
 
+/// Connection parameters for a single ASCII serial port.
 #[derive(Debug, Clone)]
 pub struct SerialConfig {
     pub port_path: String,
@@ -23,6 +24,7 @@ pub struct SerialConfig {
     pub line_ending: LineEnding,
 }
 
+/// Number of data bits per serial frame.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DataBits {
@@ -32,6 +34,7 @@ pub enum DataBits {
     Eight,
 }
 
+/// Parity bit setting for the serial port.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Parity {
@@ -40,6 +43,7 @@ pub enum Parity {
     Even,
 }
 
+/// Number of stop bits per serial frame.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StopBits {
@@ -62,6 +66,7 @@ impl Default for SerialConfig {
     }
 }
 
+/// Line ending used to frame requests and responses.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LineEnding {
@@ -80,6 +85,7 @@ impl LineEnding {
     }
 }
 
+/// Errors that can occur during serial port operations.
 #[derive(Debug, Error)]
 pub enum AsciiSerialError {
     #[error("open timeout")]
@@ -99,6 +105,7 @@ pub enum AsciiSerialError {
 }
 
 impl AsciiSerialError {
+    /// Returns `true` if the error is likely transient and safe to retry.
     pub fn is_retryable(&self) -> bool {
         matches!(
             self,
@@ -107,6 +114,7 @@ impl AsciiSerialError {
     }
 }
 
+/// Wire-format protocol block parsed from JSON config.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct HardwareProtocol {
     #[serde(rename = "type")]
@@ -121,6 +129,7 @@ pub struct HardwareProtocol {
     pub io_timeout_ms: Option<u64>,
 }
 
+/// A single ASCII serial command with its target port.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Command {
     pub id: Option<String>,
@@ -128,22 +137,26 @@ pub struct Command {
     pub protocol: HardwareProtocol,
 }
 
+/// The response received for a single [`Command`].
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CommandResult {
     pub id: Option<String>,
     pub response: String,
 }
 
+/// A set of commands to execute sequentially, parsed from `{"commands": [...]}`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct BatchCommands {
     pub commands: Vec<Command>,
 }
 
+/// Responses from a [`BatchCommands`] execution.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct BatchResult {
     pub responses: Vec<CommandResult>,
 }
 
+/// Either a single [`Command`] or a [`BatchCommands`]; both forms deserialise from the same JSON.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum Payload {
@@ -151,6 +164,7 @@ pub enum Payload {
     Batch(BatchCommands),
 }
 
+/// Result of executing a [`Payload`]: a single response or a batch of responses.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum CommandResultPayload {
@@ -159,6 +173,7 @@ pub enum CommandResultPayload {
 }
 
 impl SerialConfig {
+    /// Builds a `SerialConfig` from a `HardwareProtocol`, returning an error if `type` is not `"ascii-serial"`.
     pub fn from_protocol(protocol: &HardwareProtocol) -> Result<Self, AsciiSerialError> {
         if protocol.kind != "ascii-serial" {
             return Err(AsciiSerialError::InvalidProtocolType(protocol.kind.clone()));
@@ -177,14 +192,17 @@ impl SerialConfig {
     }
 }
 
+/// Parses a JSON string into a [`Command`].
 pub fn parse_backend_command(json: &str) -> Result<Command, AsciiSerialError> {
     Ok(serde_json::from_str(json)?)
 }
 
+/// Parses a JSON string into a [`BatchCommands`].
 pub fn parse_backend_batch(json: &str) -> Result<BatchCommands, AsciiSerialError> {
     Ok(serde_json::from_str(json)?)
 }
 
+/// Parses a JSON string into a [`Payload`] (single command or batch).
 pub fn parse_backend_payload(json: &str) -> Result<Payload, AsciiSerialError> {
     Ok(serde_json::from_str(json)?)
 }
