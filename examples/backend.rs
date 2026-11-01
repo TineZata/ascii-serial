@@ -4,11 +4,16 @@ use std::time::Duration;
 
 use ascii_serial::{
     client::{ClientConfig, Context},
-    parse_backend_payload, Command, Payload,
-    CommandResultPayload, AsciiSerialError,
+    AsciiSerialError, ChannelConfig, ChannelReader, Reading,
 };
+use serde::Deserialize;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
+
+#[derive(Deserialize)]
+struct BackendConfig {
+    channels: Vec<ChannelConfig>,
+}
 
 fn resolve_config_path(arg_path: &str) -> Result<PathBuf, std::io::Error> {
     let direct = PathBuf::from(arg_path);
@@ -38,40 +43,16 @@ fn resolve_config_path(arg_path: &str) -> Result<PathBuf, std::io::Error> {
     ))
 }
 
-fn print_payload_result(result: CommandResultPayload) {
-    match result {
-        CommandResultPayload::Single(single) => {
-            if let Some(id) = single.id {
-                info!(id = %id, response = %single.response, "serial response");
-            } else {
-                info!(response = %single.response, "serial response");
-            }
-        }
-        CommandResultPayload::Batch(batch) => {
-            for entry in batch.responses {
-                if let Some(id) = entry.id {
-                    info!(id = %id, response = %entry.response, "serial response");
-                } else {
-                    info!(response = %entry.response, "serial response");
-                }
-            }
-        }
-    }
-}
-
-fn payload_ports(payload: &Payload) -> Vec<String> {
-    match payload {
-        Payload::Single(cmd) => vec![cmd.protocol.port_path.clone()],
-        Payload::Batch(batch) => {
-            let mut ports = Vec::with_capacity(batch.commands.len());
-            for Command { protocol, .. } in &batch.commands {
-                if !ports.iter().any(|p| p == &protocol.port_path) {
-                    ports.push(protocol.port_path.clone());
-                }
-            }
-            ports
-        }
-    }
+fn print_reading(channel: &ChannelConfig, reading: &Reading) {
+    let id = channel.id.as_deref().unwrap_or("-");
+    let captures: Vec<&str> = reading.captures.iter().map(|c| c.as_str()).collect();
+    info!(
+        id = %id,
+        text = %reading.text,
+        value = reading.value,
+        captures = ?captures,
+        "serial reading"
+    );
 }
 
 fn print_available_ports() {
@@ -91,23 +72,25 @@ fn print_available_ports() {
     }
 }
 
-fn diagnose_error(err: &AsciiSerialError, payload: &Payload) {
-    if let AsciiSerialError::Io(ioe) = err {
-        if ioe.kind() == std::io::ErrorKind::Other {
-            let msg = ioe.to_string().to_lowercase();
-            if msg.contains("cannot find the file") {
-                let ports = payload_ports(payload);
-                warn!(ports = %ports.join(", "), "Configured serial port(s) not found");
-                print_available_ports();
-            }
+fn diagnose_error(err: &AsciiSerialError, channel: &ChannelConfig) {
+    match err {
+        AsciiSerialError::Io(ioe) if ioe.kind() == std::io::ErrorKind::NotFound => {
+            warn!(port = %channel.port_path, "Configured serial port not found");
+            print_available_ports();
         }
+        AsciiSerialError::PortBusy(port) => {
+            warn!(port = %port, "Serial port is held by another process");
+        }
+        _ => {}
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .with_target(false)
         .init();
 
@@ -120,8 +103,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let config_path = resolve_config_path(&config_arg)?;
     info!(path = %config_path.display(), "loading backend config");
     let raw = std::fs::read_to_string(&config_path)?;
-    let payload = parse_backend_payload(&raw)?;
-    let configured_ports = payload_ports(&payload);
+    let config: BackendConfig = serde_json::from_str(&raw)?;
+    let readers = config
+        .channels
+        .into_iter()
+        .filter(|channel| channel.read_command.is_some())
+        .map(ChannelReader::new)
+        .collect::<Result<Vec<_>, _>>()?;
 
     let context = Context::new(ClientConfig {
         retry_interval: Duration::from_secs(2),
@@ -137,18 +125,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let retry_interval = Duration::from_secs(2);
     info!(retry_ms = retry_interval.as_millis(), "starting backend poll loop");
     loop {
-        match context.execute_payload_once(&payload).await {
-            Ok(result) => {
-                print_payload_result(result);
-            }
-            Err(err) => {
-                for port in &configured_ports {
-                    error!(port = %port, error = %err, "connection failed");
+        for reader in &readers {
+            let channel = reader.config();
+            match context.read_channel(reader).await {
+                Ok(reading) => print_reading(channel, &reading),
+                Err(err) => {
+                    let id = channel.id.as_deref().unwrap_or("-");
+                    error!(id = %id, error = %err, "channel read failed");
+                    diagnose_error(&err, channel);
                 }
-                diagnose_error(&err, &payload);
             }
         }
 
-        tokio::time::sleep(retry_interval).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }

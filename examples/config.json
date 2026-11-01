@@ -1,42 +1,68 @@
 {
-  "commands": [
+  "channels": [
     {
-      "id": "valve_ascii_serial",
-      "type": "toggle_button",
-      "label": "Valve Cmd (ASCII SERIAL)",
-      "data_type": "bool",
-      "protocol": {
-        "type": "ascii-serial",
-        "port_path": "COM3",
-        "baud_rate": 9600,
-        "data_bits": "eight",
-        "parity": "none",
-        "stop_bits": "one",
-        "line_ending": "lf",
-        "open_timeout_ms": 2000,
-        "io_timeout_ms": 2000
-      },
-      "request": "VALVE?",
-      "expected_response": "VALVE=0"
+      "id": "pico_serial_stats",
+      "port_path": "COM7",
+      "baud_rate": 115200,
+      "data_bits": "eight",
+      "parity": "none",
+      "stop_bits": "one",
+      "line_ending": "crlf",
+      "open_timeout_ms": 2000,
+      "io_timeout_ms": 2000,
+      "read_command": "STAT?",
+      "read_response": "STAT %s"
     },
     {
-      "id": "temp_ascii_serial",
-      "type": "readout",
-      "label": "Temperature Cmd (ASCII SERIAL)",
-      "data_type": "float",
-      "protocol": {
-        "type": "ascii-serial",
-        "port_path": "COM3",
-        "baud_rate": 9600,
-        "data_bits": "eight",
-        "parity": "none",
-        "stop_bits": "one",
-        "line_ending": "lf",
-        "open_timeout_ms": 2000,
-        "io_timeout_ms": 2000
-      },
-      "request": "TEMP?",
-      "expected_response": "TEMP=24.1"
+      "id": "pico_stats_baud",
+      "port_path": "COM7",
+      "baud_rate": 115200,
+      "line_ending": "crlf",
+      "read_command": "STAT?",
+      "read_response": "STAT Baud = %d, Parity = %*s, Stop Bits = %*d, Data Bits = %*s",
+      "response_mode": "number"
+    },
+    {
+      "id": "pico_stats_parity",
+      "port_path": "COM7",
+      "baud_rate": 115200,
+      "line_ending": "crlf",
+      "read_command": "STAT?",
+      "read_response": "STAT Baud = %*d, Parity = %s, Stop Bits = %*d, Data Bits = %*s"
+    },
+    {
+      "id": "pico_stats_stop_bits",
+      "port_path": "COM7",
+      "baud_rate": 115200,
+      "line_ending": "crlf",
+      "read_command": "STAT?",
+      "read_response": "STAT Baud = %*d, Parity = %*s, Stop Bits = %d, Data Bits = %*s",
+      "response_mode": "number"
+    },
+    {
+      "id": "pico_stats_data_bits",
+      "port_path": "COM7",
+      "baud_rate": 115200,
+      "line_ending": "crlf",
+      "read_command": "STAT?",
+      "read_response": "STAT Baud = %*d, Parity = %*s, Stop Bits = %*d, Data Bits = %s",
+      "response_mode": "number"
+    },
+    {
+      "id": "pico_stats_all",
+      "port_path": "COM7",
+      "baud_rate": 115200,
+      "line_ending": "crlf",
+      "read_command": "STAT?",
+      "read_response": "STAT Baud = %d, Parity = %s, Stop Bits = %d, Data Bits = %s"
+    },
+    {
+      "id": "pico_echo_unknown_command",
+      "port_path": "COM7",
+      "baud_rate": 115200,
+      "line_ending": "crlf",
+      "read_command": "ECHO reflected message",
+      "read_response": "ERR unknown command"
     }
   ]
 }
