@@ -6,14 +6,16 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 
 use crate::{
-    BatchCommands, BatchResult, Command,
-    Payload, CommandResultPayload, CommandResult,
-    AsciiSerialError, SerialBackend,
+    AsciiSerialError, BatchCommands, BatchResult, Command, CommandResult, CommandResultPayload,
+    Payload, SerialBackend,
 };
 
 type ConnectedCallback = Arc<dyn Fn(String) + Send + Sync>;
 type DisconnectedCallback = Arc<dyn Fn(String, String) + Send + Sync>;
 
+/// Connection state and callbacks shared by every clone of a [`Context`](super::Context).
+///
+/// Connection state is tracked per port path; connected callbacks fire on state transitions only.
 #[derive(Clone)]
 pub(crate) struct ContextInner {
     backend: Arc<SerialBackend>,
@@ -32,6 +34,7 @@ impl ContextInner {
         }
     }
 
+    /// Registers a callback invoked with the port path when it first becomes reachable (or recovers).
     pub(crate) fn on_connected<F>(&self, callback: F)
     where
         F: Fn(String) + Send + Sync + 'static,
@@ -41,6 +44,7 @@ impl ContextInner {
         }
     }
 
+    /// Registers a callback invoked with `(port_path, reason)` on every connection-level failure.
     pub(crate) fn on_disconnected<F>(&self, callback: F)
     where
         F: Fn(String, String) + Send + Sync + 'static,
@@ -50,23 +54,53 @@ impl ContextInner {
         }
     }
 
+    /// Executes one command, accepting the first response line.
     pub(crate) async fn execute_command(
         &self,
         cmd: &Command,
     ) -> Result<CommandResult, AsciiSerialError> {
-        let port_path = cmd.protocol.port_path.clone();
-        match self.backend.execute_command(cmd).await {
+        self.execute_command_matching(cmd, |_| true).await
+    }
+
+    /// Executes one command and updates connection state: success marks the port connected,
+    /// failure is recorded via `record_failure`.
+    pub(crate) async fn execute_command_matching<F>(
+        &self,
+        cmd: &Command,
+        accept: F,
+    ) -> Result<CommandResult, AsciiSerialError>
+    where
+        F: Fn(&str) -> bool,
+    {
+        let port_path = &cmd.protocol.port_path;
+        match self.backend.execute_command_matching(cmd, accept).await {
             Ok(result) => {
-                self.mark_connected(&port_path);
+                self.mark_connected(port_path);
                 Ok(result)
             }
             Err(err) => {
-                self.mark_disconnected(&port_path, &err);
+                self.record_failure(port_path, &cmd.request, &err);
                 Err(err)
             }
         }
     }
 
+    /// Sends one command without waiting for a reply, updating connection state like `execute_command_matching`.
+    pub(crate) async fn send_command(&self, cmd: &Command) -> Result<(), AsciiSerialError> {
+        let port_path = &cmd.protocol.port_path;
+        match self.backend.send_command(cmd).await {
+            Ok(()) => {
+                self.mark_connected(port_path);
+                Ok(())
+            }
+            Err(err) => {
+                self.record_failure(port_path, &cmd.request, &err);
+                Err(err)
+            }
+        }
+    }
+
+    /// Executes a single command or a batch once, failing on the first error.
     pub(crate) async fn execute_payload(
         &self,
         payload: &Payload,
@@ -74,6 +108,7 @@ impl ContextInner {
         execute_payload_with(payload, |cmd| async move { self.execute_command(&cmd).await }).await
     }
 
+    /// Like `execute_payload`, but sleeps `retry_interval` and starts over on retryable errors.
     pub(crate) async fn execute_payload_retrying(
         &self,
         payload: &Payload,
@@ -85,6 +120,7 @@ impl ContextInner {
         .await
     }
 
+    /// Flips the port to connected and fires the callbacks only on a disconnected → connected transition.
     fn mark_connected(&self, port_path: &str) {
         let mut should_emit = false;
         if let Ok(mut state) = self.connection_state.lock() {
@@ -100,19 +136,23 @@ impl ContextInner {
         }
     }
 
+    /// Records a failed request. A reply timeout says nothing about the connection (the device
+    /// may simply ignore that command), so only connection-level errors count as a disconnect.
+    fn record_failure(&self, port_path: &str, request: &str, err: &AsciiSerialError) {
+        if matches!(err, AsciiSerialError::IoTimeout) {
+            warn!(port = %port_path, request, "no matching reply before I/O timeout");
+        } else {
+            self.mark_disconnected(port_path, err);
+        }
+    }
+
+    /// Flips the port to disconnected and fires the callbacks on every call, so each failed attempt is reported.
     fn mark_disconnected(&self, port_path: &str, err: &AsciiSerialError) {
-        let mut should_emit = false;
         if let Ok(mut state) = self.connection_state.lock() {
-            let was_connected = state.get(port_path).copied();
-            if was_connected.unwrap_or(true) {
-                state.insert(port_path.to_string(), false);
-                should_emit = true;
-            }
+            state.insert(port_path.to_string(), false);
         }
-        if should_emit {
-            warn!(port = %port_path, error = %err, "serial connection lost");
-            self.emit_disconnected(port_path.to_string(), err.to_string());
-        }
+        warn!(port = %port_path, error = %err, "serial connection attempt failed");
+        self.emit_disconnected(port_path.to_string(), err.to_string());
     }
 
     fn emit_connected(&self, port_path: String) {
@@ -146,6 +186,7 @@ impl Default for ContextInner {
     }
 }
 
+/// Runs every command of `batch` in order, stopping at the first error.
 async fn execute_batch_with<F, Fut>(
     batch: &BatchCommands,
     mut execute: F,
@@ -161,6 +202,7 @@ where
     Ok(BatchResult { responses })
 }
 
+/// Dispatches `payload` to `execute`, preserving its single/batch shape in the result.
 async fn execute_payload_with<F, Fut>(
     payload: &Payload,
     mut execute: F,
@@ -179,6 +221,7 @@ where
     }
 }
 
+/// Repeats `execute` until it succeeds or fails with a non-retryable error, sleeping `retry_interval` between attempts.
 async fn retry_with_interval<T, F, Fut>(
     operation: &str,
     retry_interval: Duration,
