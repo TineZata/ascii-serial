@@ -48,7 +48,7 @@ impl ChannelReader {
     pub fn accepts(&self, line: &str) -> bool {
         self.template
             .as_ref()
-            .map_or(true, |template| template.captures(line).is_ok())
+            .is_none_or(|template| template.captures(line).is_ok())
     }
 
     /// Interprets a reply line according to the channel's template and `response_mode`.

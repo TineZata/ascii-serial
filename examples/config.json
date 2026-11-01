@@ -61,8 +61,7 @@
       "port_path": "COM7",
       "baud_rate": 115200,
       "line_ending": "crlf",
-      "read_command": "ECHO reflected message",
-      "read_response": "ERR unknown command"
+      "read_command": "BOGUS?"
     }
   ]
 }
