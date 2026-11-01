@@ -70,8 +70,9 @@ the client methods take, and `protocol()` the wire-format `HardwareProtocol`.
 | `response_mode` | `text` | `number`, `bool`, `text`, or `presence` (any matching line is a pulse, value `1`) |
 
 [examples/config.json](examples/config.json) is a full `{"channels": [...]}` document;
-`cargo run --example backend -- examples/config.json` polls it every two seconds and logs
+`cargo run --example backend -- examples/config.json` logs
 each reading (set `RUST_LOG` to change the default `info` level).
+`$env:RUST_LOG = "info"`
 
 ## Response templates
 
